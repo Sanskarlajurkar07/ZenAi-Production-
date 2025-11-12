@@ -1,39 +1,29 @@
 {
-  "name": "zenai-frontend",
+  "name": "zenai-ai-engine",
   "version": "1.0.0",
-  "private": true,
+  "description": "AI Engine for ZenAI platform",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": ["ai", "langchain", "openai"],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
+    "@langchain/anthropic": "^0.3.0",
+    "@langchain/openai": "^0.3.0",
     "axios": "^1.6.2",
-    "react-query": "^3.39.3",
-    "zustand": "^4.4.7",
-    "date-fns": "^2.30.0",
-    "react-hot-toast": "^2.4.1",
-    "react-icons": "^4.12.0",
-    "lucide-react": "^0.294.0",
-    "framer-motion": "^10.16.16",
-    "react-beautiful-dnd": "^13.1.1",
-    "recharts": "^2.10.3",
-    "react-markdown": "^9.0.1",
-    "react-audio-recorder": "^1.0.0",
-    "socket.io-client": "^4.6.1"
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "langchain": "^0.3.0",
+    "openai": "^4.20.0",
+    "winston": "^3.11.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.0.8",
-    "tailwindcss": "^3.3.6",
-    "postcss": "^8.4.32",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.55.0",
-    "prettier": "^3.1.1"
-  },
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint src --ext js,jsx",
-    "format": "prettier --write \"src/**/*.{js,jsx}\""
+    "nodemon": "^3.0.1"
   }
 }
