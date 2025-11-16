@@ -1,9 +1,9 @@
 // src/services/ai.service.js
-const ProductManagerAgent = require('../../zenai-ai-engine/src/agents/product-manager.agent');
-const TaskAnalyzerAgent = require('../../zenai-ai-engine/src/agents/task-analyzer.agent');
-const MeetingSummarizerAgent = require('../../zenai-ai-engine/src/agents/meeting-summarizer.agent');
-const WhisperService = require('../../zenai-ai-engine/src/whisper/transcription.service');
-const DocumentProcessor = require('../../zenai-ai-engine/src/embeddings/document-processor');
+const ProductManagerAgent = require('../../../zenai-ai-engine/src/agents/product-manager.agent');
+const TaskAnalyzerAgent = require('../../../zenai-ai-engine/src/agents/task-analyzer.agent');
+const MeetingSummarizerAgent = require('../../../zenai-ai-engine/src/agents/meeting-summarizer.agent');
+const WhisperService = require('../../../zenai-ai-engine/src/whisper/transcription.service');
+const DocumentProcessor = require('../../../zenai-ai-engine/src/embeddings/document-processor');
 const ChatMessage = require('../models/ChatMessage.model');
 const logger = require('../utils/logger');
 
