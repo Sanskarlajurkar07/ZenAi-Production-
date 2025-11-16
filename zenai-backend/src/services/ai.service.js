@@ -1,66 +1,47 @@
-// src/services/ai.service.js
-const ProductManagerAgent = require('../../zenai-ai-engine/src/agents/product-manager.agent');
-const TaskAnalyzerAgent = require('../../zenai-ai-engine/src/agents/task-analyzer.agent');
-const MeetingSummarizerAgent = require('../../zenai-ai-engine/src/agents/meeting-summarizer.agent');
-const WhisperService = require('../../zenai-ai-engine/src/whisper/transcription.service');
-const DocumentProcessor = require('../../zenai-ai-engine/src/embeddings/document-processor');
+// zenai-backend/src/services/ai.service.js
+// RECOMMENDED APPROACH - HTTP-based communication
+const axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
 const ChatMessage = require('../models/ChatMessage.model');
 const logger = require('../utils/logger');
 
 class AIService {
   constructor() {
-    this.productManager = null;
-    this.taskAnalyzer = null;
-    this.meetingSummarizer = null;
-    this.whisperService = null;
-    this.documentProcessor = null;
-    this.initialized = false;
+    this.aiEngineUrl = process.env.AI_ENGINE_URL || 'http://localhost:8001';
+    this.client = axios.create({
+      baseURL: this.aiEngineUrl,
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // Check if AI engine is available
+    this.checkConnection();
   }
 
-  async initialize() {
+  async checkConnection() {
     try {
-      // Initialize all AI agents
-      this.productManager = new ProductManagerAgent();
-      await this.productManager.initialize();
-
-      this.taskAnalyzer = new TaskAnalyzerAgent();
-      await this.taskAnalyzer.initialize();
-
-      this.meetingSummarizer = new MeetingSummarizerAgent();
-
-      this.whisperService = new WhisperService();
-
-      this.documentProcessor = new DocumentProcessor();
-      await this.documentProcessor.initialize();
-
-      this.initialized = true;
-      logger.info('AI Service initialized successfully');
+      await this.client.get('/health');
+      logger.info('✓ AI Engine connection established');
     } catch (error) {
-      logger.error('AI Service initialization failed:', error);
-      throw error;
+      logger.warn('⚠ AI Engine not available - running in fallback mode');
     }
   }
 
   async chat(userId, message, context = {}) {
-    if (!this.initialized) await this.initialize();
-
     try {
       const startTime = Date.now();
 
-      // Choose appropriate agent based on context
-      let response;
-      if (context.type === 'task-analysis') {
-        response = await this.taskAnalyzer.run(message, context);
-      } else if (context.type === 'project-management') {
-        response = await this.productManager.run(message, context);
-      } else {
-        // Default to product manager for general queries
-        response = await this.productManager.chat(message);
-      }
+      const response = await this.client.post('/api/v1/ai/chat', {
+        message,
+        context
+      });
 
       const responseTime = Date.now() - startTime;
 
-      // Save conversation to database
+      // Save user message
       await ChatMessage.create({
         user: userId,
         role: 'user',
@@ -71,10 +52,11 @@ class AIService {
         }
       });
 
+      // Save AI response
       await ChatMessage.create({
         user: userId,
         role: 'ai',
-        content: response,
+        content: response.data.data.response,
         context: {
           projectId: context.projectId,
           taskId: context.taskId
@@ -86,130 +68,242 @@ class AIService {
       });
 
       return {
-        response,
+        response: response.data.data.response,
         metadata: {
           responseTime,
           agent: context.type || 'product-manager'
         }
       };
     } catch (error) {
-      logger.error('AI Chat error:', error);
-      throw error;
+      logger.error('AI Chat error:', error.message);
+      
+      // Fallback response
+      return {
+        response: "I'm currently experiencing connectivity issues. Please try again later.",
+        metadata: {
+          error: true,
+          fallback: true
+        }
+      };
     }
   }
 
   async createTaskFromDescription(description, projectId, userId) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const taskData = await this.productManager.createTaskFromDescription(
+      const response = await this.client.post('/api/v1/ai/create-task', {
         description,
         projectId
-      );
+      });
 
       return {
         success: true,
-        task: taskData
+        task: response.data.data.task || response.data.data
       };
     } catch (error) {
-      logger.error('Task creation error:', error);
-      throw error;
+      logger.error('Task creation error:', error.message);
+      
+      // Fallback: Create basic task structure
+      return {
+        success: true,
+        task: {
+          title: description.substring(0, 100),
+          description: description,
+          priority: 'medium',
+          estimatedTime: 4,
+          tags: ['pending-ai-analysis'],
+          status: 'todo'
+        }
+      };
     }
   }
 
   async analyzeTask(task, projectContext) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const analysis = await this.taskAnalyzer.analyzeTask(task, projectContext);
-      return analysis;
+      const response = await this.client.post('/api/v1/ai/analyze-task', {
+        task: {
+          _id: task._id,
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          status: task.status
+        },
+        projectContext
+      });
+
+      return response.data.data.analysis || response.data.data;
     } catch (error) {
-      logger.error('Task analysis error:', error);
-      throw error;
+      logger.error('Task analysis error:', error.message);
+      
+      // Fallback analysis
+      return {
+        complexityScore: 5,
+        estimatedHours: 8,
+        skillsRequired: ['General'],
+        dependencies: [],
+        risks: ['Unable to perform AI analysis'],
+        recommendations: ['Manual review recommended'],
+        blockers: []
+      };
     }
   }
 
   async analyzeProject(projectData, tasks) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const health = await this.productManager.analyzeProjectHealth(
-        projectData,
-        tasks
-      );
-      return health;
+      const response = await this.client.post('/api/v1/ai/analyze-project', {
+        projectData: {
+          name: projectData.name,
+          status: projectData.status,
+          progress: projectData.progress,
+          deadline: projectData.deadline
+        },
+        tasks: tasks.map(t => ({
+          _id: t._id,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          dueDate: t.dueDate
+        }))
+      });
+
+      return response.data.data.health || response.data.data;
     } catch (error) {
-      logger.error('Project analysis error:', error);
-      throw error;
+      logger.error('Project analysis error:', error.message);
+      
+      // Fallback analysis
+      const completedTasks = tasks.filter(t => t.status === 'done').length;
+      const totalTasks = tasks.length;
+      
+      return {
+        healthScore: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
+        status: 'unknown',
+        insights: ['AI analysis unavailable'],
+        risks: [],
+        recommendations: ['Manual project review recommended']
+      };
     }
   }
 
   async transcribeAudio(audioFilePath, meetingContext) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const result = await this.meetingSummarizer.transcribeAndSummarize(
-        audioFilePath,
-        meetingContext
-      );
-      return result;
+      const formData = new FormData();
+      formData.append('audio', fs.createReadStream(audioFilePath));
+      formData.append('title', meetingContext.title || '');
+      formData.append('participants', JSON.stringify(meetingContext.participants || []));
+      formData.append('date', meetingContext.date || new Date().toISOString());
+
+      const response = await this.client.post('/api/v1/ai/transcribe', formData, {
+        headers: {
+          ...formData.getHeaders(),
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+      });
+
+      return response.data.data;
     } catch (error) {
-      logger.error('Transcription error:', error);
-      throw error;
+      logger.error('Transcription error:', error.message);
+      throw new Error('Audio transcription service unavailable');
     }
   }
 
   async indexDocument(content, metadata) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const result = await this.documentProcessor.indexDocument(
+      const response = await this.client.post('/api/v1/ai/index-document', {
         content,
         metadata
-      );
-      return result;
+      });
+
+      return response.data.data;
     } catch (error) {
-      logger.error('Document indexing error:', error);
-      throw error;
+      logger.error('Document indexing error:', error.message);
+      return { 
+        success: false, 
+        message: 'Document indexing unavailable' 
+      };
     }
   }
 
   async searchDocuments(query, options) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const results = await this.documentProcessor.similaritySearch(
-        query,
-        options
-      );
-      return results;
+      const response = await this.client.get('/api/v1/ai/search-documents', {
+        params: { 
+          query, 
+          limit: options.limit || 5,
+          filter: JSON.stringify(options.filter || {})
+        }
+      });
+
+      return response.data.data;
     } catch (error) {
-      logger.error('Document search error:', error);
-      throw error;
+      logger.error('Document search error:', error.message);
+      return { results: [] };
     }
   }
 
   async suggestTaskBreakdown(epicTask) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const subtasks = await this.productManager.suggestTaskBreakdown(epicTask);
-      return subtasks;
+      const response = await this.client.post('/api/v1/ai/suggest-breakdown', {
+        task: {
+          title: epicTask.title,
+          description: epicTask.description
+        }
+      });
+
+      return response.data.data.subtasks || response.data.data;
     } catch (error) {
-      logger.error('Task breakdown error:', error);
-      throw error;
+      logger.error('Task breakdown error:', error.message);
+      
+      // Simple fallback breakdown
+      return [
+        {
+          title: `${epicTask.title} - Phase 1`,
+          description: 'Initial implementation',
+          estimatedTime: 4,
+          priority: 'high'
+        },
+        {
+          title: `${epicTask.title} - Phase 2`,
+          description: 'Testing and refinement',
+          estimatedTime: 3,
+          priority: 'medium'
+        }
+      ];
     }
   }
 
   async estimateEffort(tasks) {
-    if (!this.initialized) await this.initialize();
-
     try {
-      const estimates = await this.taskAnalyzer.estimateEffort(tasks);
-      return estimates;
+      const response = await this.client.post('/api/v1/ai/estimate-effort', {
+        tasks: tasks.map(t => ({
+          title: t.title,
+          description: t.description,
+          priority: t.priority
+        }))
+      });
+
+      return response.data.data.estimates || response.data.data;
     } catch (error) {
-      logger.error('Effort estimation error:', error);
-      throw error;
+      logger.error('Effort estimation error:', error.message);
+      
+      // Simple fallback estimation
+      return {
+        totalHours: tasks.length * 8,
+        taskEstimates: tasks.map(t => ({
+          taskId: t._id,
+          hours: 8,
+          confidence: 'low'
+        }))
+      };
+    }
+  }
+
+  // Health check method
+  async isAvailable() {
+    try {
+      const response = await this.client.get('/health', { timeout: 3000 });
+      return response.data.status === 'healthy';
+    } catch (error) {
+      return false;
     }
   }
 }
