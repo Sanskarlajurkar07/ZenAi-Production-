@@ -1,0 +1,416 @@
+[1mdiff --git "a/olve ai.service.js conflict - keep HTTP-based approach\357\200\242" "b/olve ai.service.js conflict - keep HTTP-based approach\357\200\242"[m
+[1mdeleted file mode 100644[m
+[1mindex e69de29..0000000[m
+[1mdiff --git a/zenai-backend/src/services/ai.service.js b/zenai-backend/src/services/ai.service.js[m
+[1mindex f5456bd..db6902f 100644[m
+[1m--- a/zenai-backend/src/services/ai.service.js[m
+[1m+++ b/zenai-backend/src/services/ai.service.js[m
+[36m@@ -1,47 +1,66 @@[m
+[31m-// zenai-backend/src/services/ai.service.js[m
+[31m-// RECOMMENDED APPROACH - HTTP-based communication[m
+[31m-const axios = require('axios');[m
+[31m-const FormData = require('form-data');[m
+[31m-const fs = require('fs');[m
+[32m+[m[32m// src/services/ai.service.js[m
+[32m+[m[32mconst ProductManagerAgent = require('../../../zenai-ai-engine/src/agents/product-manager.agent');[m
+[32m+[m[32mconst TaskAnalyzerAgent = require('../../../zenai-ai-engine/src/agents/task-analyzer.agent');[m
+[32m+[m[32mconst MeetingSummarizerAgent = require('../../../zenai-ai-engine/src/agents/meeting-summarizer.agent');[m
+[32m+[m[32mconst WhisperService = require('../../../zenai-ai-engine/src/whisper/transcription.service');[m
+[32m+[m[32mconst DocumentProcessor = require('../../../zenai-ai-engine/src/embeddings/document-processor');[m
+ const ChatMessage = require('../models/ChatMessage.model');[m
+ const logger = require('../utils/logger');[m
+ [m
+ class AIService {[m
+   constructor() {[m
+[31m-    this.aiEngineUrl = process.env.AI_ENGINE_URL || 'http://localhost:8001';[m
+[31m-    this.client = axios.create({[m
+[31m-      baseURL: this.aiEngineUrl,[m
+[31m-      timeout: 30000,[m
+[31m-      headers: {[m
+[31m-        'Content-Type': 'application/json'[m
+[31m-      }[m
+[31m-    });[m
+[31m-[m
+[31m-    // Check if AI engine is available[m
+[31m-    this.checkConnection();[m
+[32m+[m[32m    this.productManager = null;[m
+[32m+[m[32m    this.taskAnalyzer = null;[m
+[32m+[m[32m    this.meetingSummarizer = null;[m
+[32m+[m[32m    this.whisperService = null;[m
+[32m+[m[32m    this.documentProcessor = null;[m
+[32m+[m[32m    this.initialized = false;[m
+   }[m
+ [m
+[31m-  async checkConnection() {[m
+[32m+[m[32m  async initialize() {[m
+     try {[m
+[31m-      await this.client.get('/health');[m
+[31m-      logger.info('✓ AI Engine connection established');[m
+[32m+[m[32m      // Initialize all AI agents[m
+[32m+[m[32m      this.productManager = new ProductManagerAgent();[m
+[32m+[m[32m      await this.productManager.initialize();[m
+[32m+[m
+[32m+[m[32m      this.taskAnalyzer = new TaskAnalyzerAgent();[m
+[32m+[m[32m      await this.taskAnalyzer.initialize();[m
+[32m+[m
+[32m+[m[32m      this.meetingSummarizer = new MeetingSummarizerAgent();[m
+[32m+[m
+[32m+[m[32m      this.whisperService = new WhisperService();[m
+[32m+[m
+[32m+[m[32m      this.documentProcessor = new DocumentProcessor();[m
+[32m+[m[32m      await this.documentProcessor.initialize();[m
+[32m+[m
+[32m+[m[32m      this.initialized = true;[m
+[32m+[m[32m      logger.info('AI Service initialized successfully');[m
+     } catch (error) {[m
+[31m-      logger.warn('⚠ AI Engine not available - running in fallback mode');[m
+[32m+[m[32m      logger.error('AI Service initialization failed:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async chat(userId, message, context = {}) {[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+[32m+[m
+     try {[m
+       const startTime = Date.now();[m
+ [m
+[31m-      const response = await this.client.post('/api/v1/ai/chat', {[m
+[31m-        message,[m
+[31m-        context[m
+[31m-      });[m
+[32m+[m[32m      // Choose appropriate agent based on context[m
+[32m+[m[32m      let response;[m
+[32m+[m[32m      if (context.type === 'task-analysis') {[m
+[32m+[m[32m        response = await this.taskAnalyzer.run(message, context);[m
+[32m+[m[32m      } else if (context.type === 'project-management') {[m
+[32m+[m[32m        response = await this.productManager.run(message, context);[m
+[32m+[m[32m      } else {[m
+[32m+[m[32m        // Default to product manager for general queries[m
+[32m+[m[32m        response = await this.productManager.chat(message);[m
+[32m+[m[32m      }[m
+ [m
+       const responseTime = Date.now() - startTime;[m
+ [m
+[31m-      // Save user message[m
+[32m+[m[32m      // Save conversation to database[m
+       await ChatMessage.create({[m
+         user: userId,[m
+         role: 'user',[m
+[36m@@ -52,11 +71,10 @@[m [mclass AIService {[m
+         }[m
+       });[m
+ [m
+[31m-      // Save AI response[m
+       await ChatMessage.create({[m
+         user: userId,[m
+         role: 'ai',[m
+[31m-        content: response.data.data.response,[m
+[32m+[m[32m        content: response,[m
+         context: {[m
+           projectId: context.projectId,[m
+           taskId: context.taskId[m
+[36m@@ -68,242 +86,130 @@[m [mclass AIService {[m
+       });[m
+ [m
+       return {[m
+[31m-        response: response.data.data.response,[m
+[32m+[m[32m        response,[m
+         metadata: {[m
+           responseTime,[m
+           agent: context.type || 'product-manager'[m
+         }[m
+       };[m
+     } catch (error) {[m
+[31m-      logger.error('AI Chat error:', error.message);[m
+[31m-      [m
+[31m-      // Fallback response[m
+[31m-      return {[m
+[31m-        response: "I'm currently experiencing connectivity issues. Please try again later.",[m
+[31m-        metadata: {[m
+[31m-          error: true,[m
+[31m-          fallback: true[m
+[31m-        }[m
+[31m-      };[m
+[32m+[m[32m      logger.error('AI Chat error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async createTaskFromDescription(description, projectId, userId) {[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+[32m+[m
+     try {[m
+[31m-      const response = await this.client.post('/api/v1/ai/create-task', {[m
+[32m+[m[32m      const taskData = await this.productManager.createTaskFromDescription([m
+         description,[m
+         projectId[m
+[31m-      });[m
+[32m+[m[32m      );[m
+ [m
+       return {[m
+         success: true,[m
+[31m-        task: response.data.data.task || response.data.data[m
+[32m+[m[32m        task: taskData[m
+       };[m
+     } catch (error) {[m
+[31m-      logger.error('Task creation error:', error.message);[m
+[31m-      [m
+[31m-      // Fallback: Create basic task structure[m
+[31m-      return {[m
+[31m-        success: true,[m
+[31m-        task: {[m
+[31m-          title: description.substring(0, 100),[m
+[31m-          description: description,[m
+[31m-          priority: 'medium',[m
+[31m-          estimatedTime: 4,[m
+[31m-          tags: ['pending-ai-analysis'],[m
+[31m-          status: 'todo'[m
+[31m-        }[m
+[31m-      };[m
+[32m+[m[32m      logger.error('Task creation error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async analyzeTask(task, projectContext) {[m
+[31m-    try {[m
+[31m-      const response = await this.client.post('/api/v1/ai/analyze-task', {[m
+[31m-        task: {[m
+[31m-          _id: task._id,[m
+[31m-          title: task.title,[m
+[31m-          description: task.description,[m
+[31m-          priority: task.priority,[m
+[31m-          status: task.status[m
+[31m-        },[m
+[31m-        projectContext[m
+[31m-      });[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+ [m
+[31m-      return response.data.data.analysis || response.data.data;[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const analysis = await this.taskAnalyzer.analyzeTask(task, projectContext);[m
+[32m+[m[32m      return analysis;[m
+     } catch (error) {[m
+[31m-      logger.error('Task analysis error:', error.message);[m
+[31m-      [m
+[31m-      // Fallback analysis[m
+[31m-      return {[m
+[31m-        complexityScore: 5,[m
+[31m-        estimatedHours: 8,[m
+[31m-        skillsRequired: ['General'],[m
+[31m-        dependencies: [],[m
+[31m-        risks: ['Unable to perform AI analysis'],[m
+[31m-        recommendations: ['Manual review recommended'],[m
+[31m-        blockers: [][m
+[31m-      };[m
+[32m+[m[32m      logger.error('Task analysis error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async analyzeProject(projectData, tasks) {[m
+[31m-    try {[m
+[31m-      const response = await this.client.post('/api/v1/ai/analyze-project', {[m
+[31m-        projectData: {[m
+[31m-          name: projectData.name,[m
+[31m-          status: projectData.status,[m
+[31m-          progress: projectData.progress,[m
+[31m-          deadline: projectData.deadline[m
+[31m-        },[m
+[31m-        tasks: tasks.map(t => ({[m
+[31m-          _id: t._id,[m
+[31m-          title: t.title,[m
+[31m-          status: t.status,[m
+[31m-          priority: t.priority,[m
+[31m-          dueDate: t.dueDate[m
+[31m-        }))[m
+[31m-      });[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+ [m
+[31m-      return response.data.data.health || response.data.data;[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const health = await this.productManager.analyzeProjectHealth([m
+[32m+[m[32m        projectData,[m
+[32m+[m[32m        tasks[m
+[32m+[m[32m      );[m
+[32m+[m[32m      return health;[m
+     } catch (error) {[m
+[31m-      logger.error('Project analysis error:', error.message);[m
+[31m-      [m
+[31m-      // Fallback analysis[m
+[31m-      const completedTasks = tasks.filter(t => t.status === 'done').length;[m
+[31m-      const totalTasks = tasks.length;[m
+[31m-      [m
+[31m-      return {[m
+[31m-        healthScore: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,[m
+[31m-        status: 'unknown',[m
+[31m-        insights: ['AI analysis unavailable'],[m
+[31m-        risks: [],[m
+[31m-        recommendations: ['Manual project review recommended'][m
+[31m-      };[m
+[32m+[m[32m      logger.error('Project analysis error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async transcribeAudio(audioFilePath, meetingContext) {[m
+[31m-    try {[m
+[31m-      const formData = new FormData();[m
+[31m-      formData.append('audio', fs.createReadStream(audioFilePath));[m
+[31m-      formData.append('title', meetingContext.title || '');[m
+[31m-      formData.append('participants', JSON.stringify(meetingContext.participants || []));[m
+[31m-      formData.append('date', meetingContext.date || new Date().toISOString());[m
+[31m-[m
+[31m-      const response = await this.client.post('/api/v1/ai/transcribe', formData, {[m
+[31m-        headers: {[m
+[31m-          ...formData.getHeaders(),[m
+[31m-        },[m
+[31m-        maxContentLength: Infinity,[m
+[31m-        maxBodyLength: Infinity[m
+[31m-      });[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+ [m
+[31m-      return response.data.data;[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const result = await this.meetingSummarizer.transcribeAndSummarize([m
+[32m+[m[32m        audioFilePath,[m
+[32m+[m[32m        meetingContext[m
+[32m+[m[32m      );[m
+[32m+[m[32m      return result;[m
+     } catch (error) {[m
+[31m-      logger.error('Transcription error:', error.message);[m
+[31m-      throw new Error('Audio transcription service unavailable');[m
+[32m+[m[32m      logger.error('Transcription error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async indexDocument(content, metadata) {[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+[32m+[m
+     try {[m
+[31m-      const response = await this.client.post('/api/v1/ai/index-document', {[m
+[32m+[m[32m      const result = await this.documentProcessor.indexDocument([m
+         content,[m
+         metadata[m
+[31m-      });[m
+[31m-[m
+[31m-      return response.data.data;[m
+[32m+[m[32m      );[m
+[32m+[m[32m      return result;[m
+     } catch (error) {[m
+[31m-      logger.error('Document indexing error:', error.message);[m
+[31m-      return { [m
+[31m-        success: false, [m
+[31m-        message: 'Document indexing unavailable' [m
+[31m-      };[m
+[32m+[m[32m      logger.error('Document indexing error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async searchDocuments(query, options) {[m
+[31m-    try {[m
+[31m-      const response = await this.client.get('/api/v1/ai/search-documents', {[m
+[31m-        params: { [m
+[31m-          query, [m
+[31m-          limit: options.limit || 5,[m
+[31m-          filter: JSON.stringify(options.filter || {})[m
+[31m-        }[m
+[31m-      });[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+ [m
+[31m-      return response.data.data;[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const results = await this.documentProcessor.similaritySearch([m
+[32m+[m[32m        query,[m
+[32m+[m[32m        options[m
+[32m+[m[32m      );[m
+[32m+[m[32m      return results;[m
+     } catch (error) {[m
+[31m-      logger.error('Document search error:', error.message);[m
+[31m-      return { results: [] };[m
+[32m+[m[32m      logger.error('Document search error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async suggestTaskBreakdown(epicTask) {[m
+[31m-    try {[m
+[31m-      const response = await this.client.post('/api/v1/ai/suggest-breakdown', {[m
+[31m-        task: {[m
+[31m-          title: epicTask.title,[m
+[31m-          description: epicTask.description[m
+[31m-        }[m
+[31m-      });[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+ [m
+[31m-      return response.data.data.subtasks || response.data.data;[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      const subtasks = await this.productManager.suggestTaskBreakdown(epicTask);[m
+[32m+[m[32m      return subtasks;[m
+     } catch (error) {[m
+[31m-      logger.error('Task breakdown error:', error.message);[m
+[31m-      [m
+[31m-      // Simple fallback breakdown[m
+[31m-      return [[m
+[31m-        {[m
+[31m-          title: `${epicTask.title} - Phase 1`,[m
+[31m-          description: 'Initial implementation',[m
+[31m-          estimatedTime: 4,[m
+[31m-          priority: 'high'[m
+[31m-        },[m
+[31m-        {[m
+[31m-          title: `${epicTask.title} - Phase 2`,[m
+[31m-          description: 'Testing and refinement',[m
+[31m-          estimatedTime: 3,[m
+[31m-          priority: 'medium'[m
+[31m-        }[m
+[31m-      ];[m
+[32m+[m[32m      logger.error('Task breakdown error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ [m
+   async estimateEffort(tasks) {[m
+[31m-    try {[m
+[31m-      const response = await this.client.post('/api/v1/ai/estimate-effort', {[m
+[31m-        tasks: tasks.map(t => ({[m
+[31m-          title: t.title,[m
+[31m-          description: t.description,[m
+[31m-          priority: t.priority[m
+[31m-        }))[m
+[31m-      });[m
+[31m-[m
+[31m-      return response.data.data.estimates || response.data.data;[m
+[31m-    } catch (error) {[m
+[31m-      logger.error('Effort estimation error:', error.message);[m
+[31m-      [m
+[31m-      // Simple fallback estimation[m
+[31m-      return {[m
+[31m-        totalHours: tasks.length * 8,[m
+[31m-        taskEstimates: tasks.map(t => ({[m
+[31m-          taskId: t._id,[m
+[31m-          hours: 8,[m
+[31m-          confidence: 'low'[m
+[31m-        }))[m
+[31m-      };[m
+[31m-    }[m
+[31m-  }[m
+[32m+[m[32m    if (!this.initialized) await this.initialize();[m
+ [m
+[31m-  // Health check method[m
+[31m-  async isAvailable() {[m
+     try {[m
+[31m-      const response = await this.client.get('/health', { timeout: 3000 });[m
+[31m-      return response.data.status === 'healthy';[m
+[32m+[m[32m      const estimates = await this.taskAnalyzer.estimateEffort(tasks);[m
+[32m+[m[32m      return estimates;[m
+     } catch (error) {[m
+[31m-      return false;[m
+[32m+[m[32m      logger.error('Effort estimation error:', error);[m
+[32m+[m[32m      throw error;[m
+     }[m
+   }[m
+ }[m
